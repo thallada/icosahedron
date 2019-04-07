@@ -10,6 +10,8 @@ use cgmath::Vector3;
 use serde::ser::{SerializeSeq, Serializer};
 use serde::Serialize;
 
+const VERT_CACHE_PRECISION: f32 = 10000_f32;
+
 #[derive(Debug)]
 struct Triangle {
     a: usize,
@@ -44,6 +46,8 @@ struct ArraySerializedVector(Vector3<f32>);
 struct Polyhedron {
     positions: Vec<ArraySerializedVector>,
     cells: Vec<Triangle>,
+    #[serde(skip)]
+    added_vert_cache: HashMap<(i32, i32, i32), usize>,
 }
 
 impl Serialize for ArraySerializedVector {
@@ -65,26 +69,14 @@ impl Polyhedron {
         Polyhedron {
             positions: vec![],
             cells: vec![],
+            added_vert_cache: HashMap::new(),
         }
     }
 
     fn new_isocahedron(radius: f32, detail: usize) -> Polyhedron {
         let t = (1.0 + (5.0 as f32).sqrt()) / 2.0;
-        let base_isocahedron = Polyhedron {
-            positions: vec![
-                ArraySerializedVector(Vector3::new(-1.0, t, 0.0)),
-                ArraySerializedVector(Vector3::new(1.0, t, 0.0)),
-                ArraySerializedVector(Vector3::new(-1.0, -t, 0.0)),
-                ArraySerializedVector(Vector3::new(1.0, -t, 0.0)),
-                ArraySerializedVector(Vector3::new(0.0, -1.0, t)),
-                ArraySerializedVector(Vector3::new(0.0, 1.0, t)),
-                ArraySerializedVector(Vector3::new(0.0, -1.0, -t)),
-                ArraySerializedVector(Vector3::new(0.0, 1.0, -t)),
-                ArraySerializedVector(Vector3::new(t, 0.0, -1.0)),
-                ArraySerializedVector(Vector3::new(t, 0.0, 1.0)),
-                ArraySerializedVector(Vector3::new(-t, 0.0, -1.0)),
-                ArraySerializedVector(Vector3::new(-t, 0.0, 1.0)),
-            ],
+        let mut base_isocahedron = Polyhedron {
+            positions: vec![],
             cells: vec![
                 Triangle::new(0, 11, 5),
                 Triangle::new(0, 5, 1),
@@ -107,7 +99,21 @@ impl Polyhedron {
                 Triangle::new(8, 6, 7),
                 Triangle::new(9, 8, 1),
             ],
+            added_vert_cache: HashMap::new(),
         };
+        base_isocahedron.add_position(Vector3::new(-1.0, t, 0.0));
+        base_isocahedron.add_position(Vector3::new(1.0, t, 0.0));
+        base_isocahedron.add_position(Vector3::new(-1.0, -t, 0.0));
+        base_isocahedron.add_position(Vector3::new(1.0, -t, 0.0));
+        base_isocahedron.add_position(Vector3::new(0.0, -1.0, t));
+        base_isocahedron.add_position(Vector3::new(0.0, 1.0, t));
+        base_isocahedron.add_position(Vector3::new(0.0, -1.0, -t));
+        base_isocahedron.add_position(Vector3::new(0.0, 1.0, -t));
+        base_isocahedron.add_position(Vector3::new(t, 0.0, -1.0));
+        base_isocahedron.add_position(Vector3::new(t, 0.0, 1.0));
+        base_isocahedron.add_position(Vector3::new(-t, 0.0, -1.0));
+        base_isocahedron.add_position(Vector3::new(-t, 0.0, 1.0));
+
         let mut subdivided = Polyhedron::new();
         subdivided.subdivide(base_isocahedron, radius, detail);
         subdivided
@@ -121,14 +127,11 @@ impl Polyhedron {
     }
 
     fn subdivide(&mut self, other: Polyhedron, radius: f32, detail: usize) {
-        // TODO: maybe make this part of the polygon stuct to avoid having to pass it around
-        let mut added_vert_cache: HashMap<(i32, i32, i32), usize> = HashMap::new();
-        let precision = 10_f32.powi(4);
         for triangle in other.cells {
             let a = other.positions[triangle.a].0;
             let b = other.positions[triangle.b].0;
             let c = other.positions[triangle.c].0;
-            self.subdivide_triangle(a, b, c, radius, detail, precision, &mut added_vert_cache);
+            self.subdivide_triangle(a, b, c, radius, detail);
         }
     }
 
@@ -139,8 +142,6 @@ impl Polyhedron {
         c: Vector3<f32>,
         radius: f32,
         detail: usize,
-        precision: f32,
-        added_vert_cache: &mut HashMap<(i32, i32, i32), usize>,
     ) {
         let cols = 2usize.pow(detail as u32);
         let mut new_vertices: Vec<Vec<Vector3<f32>>> = vec![];
@@ -167,18 +168,13 @@ impl Polyhedron {
 
                 let mut triangle = Triangle { a: 0, b: 0, c: 0 };
                 if j % 2 == 0 {
-                    triangle.a =
-                        self.add_position(new_vertices[i][k + 1], precision, added_vert_cache);
-                    triangle.b =
-                        self.add_position(new_vertices[i + 1][k], precision, added_vert_cache);
-                    triangle.c = self.add_position(new_vertices[i][k], precision, added_vert_cache);
+                    triangle.a = self.add_position(new_vertices[i][k + 1]);
+                    triangle.b = self.add_position(new_vertices[i + 1][k]);
+                    triangle.c = self.add_position(new_vertices[i][k]);
                 } else {
-                    triangle.a =
-                        self.add_position(new_vertices[i][k + 1], precision, added_vert_cache);
-                    triangle.b =
-                        self.add_position(new_vertices[i + 1][k + 1], precision, added_vert_cache);
-                    triangle.c =
-                        self.add_position(new_vertices[i + 1][k], precision, added_vert_cache);
+                    triangle.a = self.add_position(new_vertices[i][k + 1]);
+                    triangle.b = self.add_position(new_vertices[i + 1][k + 1]);
+                    triangle.c = self.add_position(new_vertices[i + 1][k]);
                 }
 
                 self.cells.push(triangle);
@@ -189,20 +185,18 @@ impl Polyhedron {
     fn add_position(
         &mut self,
         vertex: Vector3<f32>,
-        precision: f32,
-        added_vert_cache: &mut HashMap<(i32, i32, i32), usize>,
     ) -> usize {
         let vertex_key = (
-            (vertex.x * precision).round() as i32,
-            (vertex.y * precision).round() as i32,
-            (vertex.z * precision).round() as i32,
+            (vertex.x * VERT_CACHE_PRECISION).round() as i32,
+            (vertex.y * VERT_CACHE_PRECISION).round() as i32,
+            (vertex.z * VERT_CACHE_PRECISION).round() as i32,
         );
-        if let Some(added_vert_index) = added_vert_cache.get(&vertex_key) {
+        if let Some(added_vert_index) = self.added_vert_cache.get(&vertex_key) {
             return *added_vert_index;
         } else {
             self.positions.push(ArraySerializedVector(vertex));
             let added_index = self.positions.len() - 1;
-            added_vert_cache.insert(vertex_key, added_index);
+            self.added_vert_cache.insert(vertex_key, added_index);
             return added_index;
         }
     }
@@ -248,26 +242,20 @@ impl Polyhedron {
                     &mut mid_centroid_cache,
                 );
 
-                let positions_start = self.positions.len();
-                // TODO: remove duplication here:
-                // push all triangle_centroids at beginning, same index as face_index
-                // push center_point once in outer loop and save index
-                // (is it okay if vertices show up in positions out of order like that?)
-                // -- yes, I think it is okay
-                self.positions.push(ArraySerializedVector(center_point));
-                self.positions.push(ArraySerializedVector(centroid));
-                self.positions.push(ArraySerializedVector(mid_b_centroid));
-                self.positions.push(ArraySerializedVector(mid_c_centroid));
+                let center_point_index = self.add_position(center_point);
+                let centroid_index = self.add_position(centroid);
+                let mid_b_centroid_index = self.add_position(mid_b_centroid);
+                let mid_c_centroid_index = self.add_position(mid_c_centroid);
 
                 self.cells.push(Triangle::new(
-                    positions_start,
-                    positions_start + 1,
-                    positions_start + 2,
+                    center_point_index,
+                    centroid_index,
+                    mid_b_centroid_index,
                 ));
                 self.cells.push(Triangle::new(
-                    positions_start,
-                    positions_start + 1,
-                    positions_start + 3,
+                    center_point_index,
+                    centroid_index,
+                    mid_c_centroid_index,
                 ));
             }
         }
