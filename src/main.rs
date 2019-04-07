@@ -182,10 +182,7 @@ impl Polyhedron {
         }
     }
 
-    fn add_position(
-        &mut self,
-        vertex: Vector3<f32>,
-    ) -> usize {
+    fn add_position(&mut self, vertex: Vector3<f32>) -> usize {
         let vertex_key = (
             (vertex.x * VERT_CACHE_PRECISION).round() as i32,
             (vertex.y * VERT_CACHE_PRECISION).round() as i32,
