@@ -3,6 +3,7 @@ extern crate cgmath;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::ops::AddAssign;
 use std::path::Path;
 
 use cgmath::prelude::*;
@@ -46,8 +47,10 @@ struct ArraySerializedVector(Vector3<f32>);
 struct Polyhedron {
     positions: Vec<ArraySerializedVector>,
     cells: Vec<Triangle>,
+    normals: Vec<ArraySerializedVector>,
     #[serde(skip)]
     added_vert_cache: HashMap<(i32, i32, i32), usize>,
+    faces: Vec<Vec<usize>>,
 }
 
 impl Serialize for ArraySerializedVector {
@@ -64,12 +67,20 @@ impl Serialize for ArraySerializedVector {
     }
 }
 
+impl AddAssign for ArraySerializedVector {
+    fn add_assign(&mut self, other: Self) {
+        *self = Self(self.0 + other.0);
+    }
+}
+
 impl Polyhedron {
     fn new() -> Polyhedron {
         Polyhedron {
             positions: vec![],
             cells: vec![],
+            normals: vec![],
             added_vert_cache: HashMap::new(),
+            faces: vec![],
         }
     }
 
@@ -99,7 +110,9 @@ impl Polyhedron {
                 Triangle::new(8, 6, 7),
                 Triangle::new(9, 8, 1),
             ],
+            normals: vec![],
             added_vert_cache: HashMap::new(),
+            faces: vec![],
         };
         base_isocahedron.add_position(Vector3::new(-1.0, t, 0.0));
         base_isocahedron.add_position(Vector3::new(1.0, t, 0.0));
@@ -119,11 +132,11 @@ impl Polyhedron {
         subdivided
     }
 
-    fn new_dual_isocahedron(radius: f32, detail: usize) -> Polyhedron {
+    fn new_truncated_isocahedron(radius: f32, detail: usize) -> Polyhedron {
         let isocahedron = Polyhedron::new_isocahedron(radius, detail);
-        let mut dual_isocahedron = Polyhedron::new();
-        dual_isocahedron.dual(isocahedron);
-        dual_isocahedron
+        let mut truncated_isocahedron = Polyhedron::new();
+        truncated_isocahedron.truncated(isocahedron);
+        truncated_isocahedron
     }
 
     fn subdivide(&mut self, other: Polyhedron, radius: f32, detail: usize) {
@@ -192,19 +205,22 @@ impl Polyhedron {
             return *added_vert_index;
         } else {
             self.positions.push(ArraySerializedVector(vertex));
+            self.normals
+                .push(ArraySerializedVector(Vector3::new(0.0, 0.0, 0.0)));
             let added_index = self.positions.len() - 1;
             self.added_vert_cache.insert(vertex_key, added_index);
             return added_index;
         }
     }
 
-    fn dual(&mut self, other: Polyhedron) {
+    fn truncated(&mut self, other: Polyhedron) {
         let vert_to_faces = other.vert_to_faces();
         let original_vert_count = other.positions.len();
         let triangle_centroids = other.triangle_centroids();
-        let mut mid_centroid_cache: HashMap<(usize, usize), Vector3<f32>> = HashMap::new();
+        let mut mid_centroid_cache: HashMap<(usize, usize, usize), Vector3<f32>> = HashMap::new();
         let mut hex_count = 0;
         let mut pent_count = 0;
+        let mut count = 0;
         for i in 0..original_vert_count {
             let faces = &vert_to_faces[&i];
             if faces.len() == 6 {
@@ -215,7 +231,9 @@ impl Polyhedron {
 
             let center_point = find_center_of_triangles(faces, &triangle_centroids);
 
-            for face_index in faces {
+            let mut new_face = Vec::new();
+
+            for face_index in faces.iter().rev() {
                 let triangle = &other.cells[*face_index];
                 let other_verts: Vec<usize> = vec![triangle.a, triangle.b, triangle.c]
                     .drain(..)
@@ -225,15 +243,19 @@ impl Polyhedron {
 
                 let centroid = triangle_centroids[face_index];
                 let mid_b_centroid = other.calculate_mid_centroid(
+                    sorted_triangle.a,
                     sorted_triangle.b,
                     faces,
+                    *face_index,
                     centroid,
                     &triangle_centroids,
                     &mut mid_centroid_cache,
                 );
                 let mid_c_centroid = other.calculate_mid_centroid(
+                    sorted_triangle.a,
                     sorted_triangle.c,
                     faces,
+                    *face_index,
                     centroid,
                     &triangle_centroids,
                     &mut mid_centroid_cache,
@@ -246,15 +268,18 @@ impl Polyhedron {
 
                 self.cells.push(Triangle::new(
                     center_point_index,
+                    mid_c_centroid_index,
                     centroid_index,
-                    mid_b_centroid_index,
                 ));
+                new_face.push(self.cells.len() - 1);
                 self.cells.push(Triangle::new(
                     center_point_index,
                     centroid_index,
-                    mid_c_centroid_index,
+                    mid_b_centroid_index,
                 ));
+                new_face.push(self.cells.len() - 1);
             }
+            self.faces.push(new_face);
         }
         println!("hexagons: {}", hex_count);
         println!("pentagons: {}", pent_count);
@@ -299,34 +324,123 @@ impl Polyhedron {
 
     fn calculate_mid_centroid(
         &self,
+        spoke_vertex_index: usize,
         vertex_index: usize,
         faces: &Vec<usize>,
+        current_face_index: usize,
         centroid: Vector3<f32>,
         triangle_centroids: &HashMap<usize, Vector3<f32>>,
-        mid_centroid_cache: &mut HashMap<(usize, usize), Vector3<f32>>,
+        mid_centroid_cache: &mut HashMap<(usize, usize, usize), Vector3<f32>>,
     ) -> Vector3<f32> {
-        let adj_face_index = self.find_adjacent_face(vertex_index, faces).unwrap();
+        let adj_face_index = self
+            .find_adjacent_face(spoke_vertex_index, vertex_index, faces, current_face_index)
+            .unwrap();
         let adj_centroid = triangle_centroids[&adj_face_index];
-        if let Some(mid_centroid) = mid_centroid_cache.get(&(vertex_index, adj_face_index)) {
+        if let Some(mid_centroid) =
+            mid_centroid_cache.get(&(spoke_vertex_index, vertex_index, adj_face_index))
+        {
             return *mid_centroid;
         } else {
             let mid_centroid = centroid.clone().lerp(adj_centroid, 0.5);
-            mid_centroid_cache.insert((vertex_index, adj_face_index), mid_centroid);
+            mid_centroid_cache.insert(
+                (spoke_vertex_index, vertex_index, adj_face_index),
+                mid_centroid,
+            );
             return mid_centroid;
         }
     }
 
-    fn find_adjacent_face(&self, vertex_index: usize, faces: &Vec<usize>) -> Option<usize> {
+    fn find_adjacent_face(
+        &self,
+        spoke_vertex_index: usize,
+        vertex_index: usize,
+        faces: &Vec<usize>,
+        current_face_index: usize,
+    ) -> Option<usize> {
         for face_index in faces {
+            if *face_index == current_face_index {
+                continue;
+            }
             let triangle = &self.cells[*face_index];
-            if triangle.a == vertex_index
-                || triangle.b == vertex_index
-                || triangle.c == vertex_index
+            if (triangle.a == spoke_vertex_index
+                || triangle.b == spoke_vertex_index
+                || triangle.c == spoke_vertex_index)
+                && (triangle.a == vertex_index
+                    || triangle.b == vertex_index
+                    || triangle.c == vertex_index)
             {
                 return Some(*face_index);
             }
         }
         None
+    }
+
+    fn compute_triangle_normals(&mut self) {
+        let origin = Vector3::new(0.0, 0.0, 0.0);
+        for i in 0..self.cells.len() {
+            let vertex_a = &self.positions[self.cells[i].a].0;
+            let vertex_b = &self.positions[self.cells[i].b].0;
+            let vertex_c = &self.positions[self.cells[i].c].0;
+
+            let e1 = vertex_a - vertex_b;
+            let e2 = vertex_c - vertex_b;
+            let mut no = e1.cross(e2);
+
+            // detect and correct inverted normal
+            let dist = vertex_b - origin;
+            if no.dot(dist) < 0.0 {
+                no *= -1.0;
+            }
+
+            let normal_a = self.normals[self.cells[i].a].0 + no;
+            let normal_b = self.normals[self.cells[i].b].0 + no;
+            let normal_c = self.normals[self.cells[i].c].0 + no;
+
+            self.normals[self.cells[i].a] = ArraySerializedVector(normal_a);
+            self.normals[self.cells[i].b] = ArraySerializedVector(normal_b);
+            self.normals[self.cells[i].c] = ArraySerializedVector(normal_c);
+        }
+
+        for normal in self.normals.iter_mut() {
+            *normal = ArraySerializedVector(normal.0.normalize());
+        }
+    }
+
+    fn compute_face_normals(&mut self) {
+        let origin = Vector3::new(0.0, 0.0, 0.0);
+        for i in 0..self.faces.len() {
+            let first_cell = &self.cells[self.faces[i][0]];
+
+            let vertex_a = &self.positions[first_cell.a].0;
+            let vertex_b = &self.positions[first_cell.b].0;
+            let vertex_c = &self.positions[first_cell.c].0;
+
+            let e1 = vertex_a - vertex_b;
+            let e2 = vertex_c - vertex_b;
+            let mut normal = e1.cross(e2);
+
+            // detect and correct inverted normal
+            let dist = vertex_b - origin;
+            if normal.dot(dist) < 0.0 {
+                normal *= -1.0;
+            }
+
+            for c in 0..self.faces[i].len() {
+                let face_cell = &self.cells[self.faces[i][c]];
+
+                let normal_a = self.normals[face_cell.a].0 + normal;
+                let normal_b = self.normals[face_cell.b].0 + normal;
+                let normal_c = self.normals[face_cell.c].0 + normal;
+
+                self.normals[face_cell.a] = ArraySerializedVector(normal_a);
+                self.normals[face_cell.b] = ArraySerializedVector(normal_b);
+                self.normals[face_cell.c] = ArraySerializedVector(normal_c);
+            }
+        }
+
+        for normal in self.normals.iter_mut() {
+            *normal = ArraySerializedVector(normal.0.normalize());
+        }
     }
 }
 
@@ -356,7 +470,8 @@ fn generate_icosahedron_files(dir: &str, param_list: Vec<(f32, usize)>) {
         );
         let filename = Path::new(dir).join(format!("icosahedron_r{}_d{}.json", param.0, param.1));
         let mut file = File::create(filename).expect("Can't create file");
-        let icosahedron = Polyhedron::new_isocahedron(param.0, param.1);
+        let mut icosahedron = Polyhedron::new_isocahedron(param.0, param.1);
+        icosahedron.compute_triangle_normals();
         println!("triangles: {}", icosahedron.cells.len());
         println!("vertices: {}", icosahedron.positions.len());
         let icosahedron_json = serde_json::to_string(&icosahedron).expect("Problem serializing");
@@ -373,7 +488,9 @@ fn generate_hexsphere_files(dir: &str, param_list: Vec<(f32, usize)>) {
         );
         let filename = Path::new(dir).join(format!("hexsphere_r{}_d{}.json", param.0, param.1));
         let mut file = File::create(filename).expect("Can't create file");
-        let hexsphere = Polyhedron::new_dual_isocahedron(param.0, param.1);
+        let mut hexsphere = Polyhedron::new_truncated_isocahedron(param.0, param.1);
+        hexsphere.compute_triangle_normals();
+        // hexsphere.compute_face_normals();
         println!("triangles: {}", hexsphere.cells.len());
         println!("vertices: {}", hexsphere.positions.len());
         let hexsphere_json = serde_json::to_string(&hexsphere).expect("Problem serializing");
@@ -394,6 +511,8 @@ fn main() {
             (1.0, 5),
             (1.0, 6),
             (1.0, 7),
+            // (1.0, 8),
+            // (1.0, 9),
         ],
     );
     generate_icosahedron_files(
