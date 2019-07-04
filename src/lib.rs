@@ -1,23 +1,22 @@
 extern crate cgmath;
+extern crate rand;
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 use std::ops::AddAssign;
-use std::path::Path;
 
 use cgmath::prelude::*;
 use cgmath::Vector3;
+use rand::prelude::*;
 use serde::ser::{SerializeSeq, Serializer};
 use serde::Serialize;
 
 const VERT_CACHE_PRECISION: f32 = 10000_f32;
 
 #[derive(Debug)]
-struct Triangle {
-    a: usize,
-    b: usize,
-    c: usize,
+pub struct Triangle {
+    pub a: usize,
+    pub b: usize,
+    pub c: usize,
 }
 
 impl Triangle {
@@ -41,13 +40,14 @@ impl Serialize for Triangle {
 }
 
 #[derive(Debug)]
-struct ArraySerializedVector(Vector3<f32>);
+pub struct ArraySerializedVector(pub Vector3<f32>);
 
 #[derive(Serialize, Debug)]
-struct Polyhedron {
-    positions: Vec<ArraySerializedVector>,
-    cells: Vec<Triangle>,
-    normals: Vec<ArraySerializedVector>,
+pub struct Polyhedron {
+    pub positions: Vec<ArraySerializedVector>,
+    pub cells: Vec<Triangle>,
+    pub normals: Vec<ArraySerializedVector>,
+    pub colors: Vec<ArraySerializedVector>,
     #[serde(skip)]
     added_vert_cache: HashMap<(i32, i32, i32), usize>,
     faces: Vec<Vec<usize>>,
@@ -74,17 +74,18 @@ impl AddAssign for ArraySerializedVector {
 }
 
 impl Polyhedron {
-    fn new() -> Polyhedron {
+    pub fn new() -> Polyhedron {
         Polyhedron {
             positions: vec![],
             cells: vec![],
             normals: vec![],
+            colors: vec![],
             added_vert_cache: HashMap::new(),
             faces: vec![],
         }
     }
 
-    fn new_isocahedron(radius: f32, detail: usize) -> Polyhedron {
+    pub fn new_isocahedron(radius: f32, detail: u32) -> Polyhedron {
         let t = (1.0 + (5.0 as f32).sqrt()) / 2.0;
         let mut base_isocahedron = Polyhedron {
             positions: vec![],
@@ -111,6 +112,7 @@ impl Polyhedron {
                 Triangle::new(9, 8, 1),
             ],
             normals: vec![],
+            colors: vec![],
             added_vert_cache: HashMap::new(),
             faces: vec![],
         };
@@ -129,22 +131,29 @@ impl Polyhedron {
 
         let mut subdivided = Polyhedron::new();
         subdivided.subdivide(base_isocahedron, radius, detail);
+        subdivided.triangles_to_faces();
         subdivided
     }
 
-    fn new_truncated_isocahedron(radius: f32, detail: usize) -> Polyhedron {
+    pub fn new_truncated_isocahedron(radius: f32, detail: u32) -> Polyhedron {
         let isocahedron = Polyhedron::new_isocahedron(radius, detail);
         let mut truncated_isocahedron = Polyhedron::new();
         truncated_isocahedron.truncated(isocahedron);
         truncated_isocahedron
     }
 
-    fn subdivide(&mut self, other: Polyhedron, radius: f32, detail: usize) {
+    fn subdivide(&mut self, other: Polyhedron, radius: f32, detail: u32) {
         for triangle in other.cells {
             let a = other.positions[triangle.a].0;
             let b = other.positions[triangle.b].0;
             let c = other.positions[triangle.c].0;
             self.subdivide_triangle(a, b, c, radius, detail);
+        }
+    }
+
+    fn triangles_to_faces(&mut self) {
+        for (cell_index, _) in self.cells.iter().enumerate() {
+            self.faces.push(vec![cell_index]);
         }
     }
 
@@ -154,9 +163,9 @@ impl Polyhedron {
         b: Vector3<f32>,
         c: Vector3<f32>,
         radius: f32,
-        detail: usize,
+        detail: u32,
     ) {
-        let cols = 2usize.pow(detail as u32);
+        let cols = 2usize.pow(detail);
         let mut new_vertices: Vec<Vec<Vector3<f32>>> = vec![];
 
         for i in 0..=cols {
@@ -207,6 +216,8 @@ impl Polyhedron {
             self.positions.push(ArraySerializedVector(vertex));
             self.normals
                 .push(ArraySerializedVector(Vector3::new(0.0, 0.0, 0.0)));
+            self.colors
+                .push(ArraySerializedVector(Vector3::new(1.0, 1.0, 1.0)));
             let added_index = self.positions.len() - 1;
             self.added_vert_cache.insert(vertex_key, added_index);
             return added_index;
@@ -220,7 +231,6 @@ impl Polyhedron {
         let mut mid_centroid_cache: HashMap<(usize, usize, usize), Vector3<f32>> = HashMap::new();
         let mut hex_count = 0;
         let mut pent_count = 0;
-        let mut count = 0;
         for i in 0..original_vert_count {
             let faces = &vert_to_faces[&i];
             if faces.len() == 6 {
@@ -283,6 +293,34 @@ impl Polyhedron {
         }
         println!("hexagons: {}", hex_count);
         println!("pentagons: {}", pent_count);
+    }
+
+    pub fn unique_vertices(&mut self, other: Polyhedron) {
+        for triangle in other.cells {
+            let vertex_a = other.positions[triangle.a].0;
+            let vertex_b = other.positions[triangle.b].0;
+            let vertex_c = other.positions[triangle.c].0;
+            let normal_a = other.normals[triangle.a].0;
+            let normal_b = other.normals[triangle.b].0;
+            let normal_c = other.normals[triangle.c].0;
+
+            self.positions.push(ArraySerializedVector(vertex_a));
+            self.positions.push(ArraySerializedVector(vertex_b));
+            self.positions.push(ArraySerializedVector(vertex_c));
+            self.normals.push(ArraySerializedVector(normal_a));
+            self.normals.push(ArraySerializedVector(normal_b));
+            self.normals.push(ArraySerializedVector(normal_c));
+            self.colors
+                .push(ArraySerializedVector(Vector3::new(1.0, 1.0, 1.0)));
+            self.colors
+                .push(ArraySerializedVector(Vector3::new(1.0, 1.0, 1.0)));
+            self.colors
+                .push(ArraySerializedVector(Vector3::new(1.0, 1.0, 1.0)));
+            let added_index = self.positions.len() - 1;
+            self.cells
+                .push(Triangle::new(added_index - 2, added_index - 1, added_index));
+        }
+        self.faces = other.faces;
     }
 
     fn vert_to_faces(&self) -> HashMap<usize, Vec<usize>> {
@@ -375,7 +413,7 @@ impl Polyhedron {
         None
     }
 
-    fn compute_triangle_normals(&mut self) {
+    pub fn compute_triangle_normals(&mut self) {
         let origin = Vector3::new(0.0, 0.0, 0.0);
         for i in 0..self.cells.len() {
             let vertex_a = &self.positions[self.cells[i].a].0;
@@ -406,7 +444,7 @@ impl Polyhedron {
         }
     }
 
-    fn compute_face_normals(&mut self) {
+    pub fn compute_face_normals(&mut self) {
         let origin = Vector3::new(0.0, 0.0, 0.0);
         for i in 0..self.faces.len() {
             let first_cell = &self.cells[self.faces[i][0]];
@@ -442,6 +480,31 @@ impl Polyhedron {
             *normal = ArraySerializedVector(normal.0.normalize());
         }
     }
+
+    pub fn assign_random_face_colors(&mut self) {
+        let mut rng = rand::thread_rng();
+        for i in 0..self.faces.len() {
+            let face_color = Vector3::new(rng.gen(), rng.gen(), rng.gen());
+
+            for c in 0..self.faces[i].len() {
+                let face_cell = &self.cells[self.faces[i][c]];
+
+                self.colors[face_cell.a] = ArraySerializedVector(face_color);
+                self.colors[face_cell.b] = ArraySerializedVector(face_color);
+                self.colors[face_cell.c] = ArraySerializedVector(face_color);
+            }
+        }
+    }
+
+    pub fn export_cells(&self) -> Vec<u32> {
+        let mut cell_vec: Vec<u32> = vec![];
+        for cell in &self.cells {
+            cell_vec.push(cell.a as u32);
+            cell_vec.push(cell.b as u32);
+            cell_vec.push(cell.c as u32);
+        }
+        cell_vec
+    }
 }
 
 fn calculate_centroid(pa: Vector3<f32>, pb: Vector3<f32>, pc: Vector3<f32>) -> Vector3<f32> {
@@ -460,72 +523,4 @@ fn find_center_of_triangles(
     }
     center_point /= triangle_indices.len() as f32;
     center_point
-}
-
-fn generate_icosahedron_files(dir: &str, param_list: Vec<(f32, usize)>) {
-    for param in param_list {
-        println!(
-            "Generating icosahedron with radius {} and detail {}...",
-            param.0, param.1
-        );
-        let filename = Path::new(dir).join(format!("icosahedron_r{}_d{}.json", param.0, param.1));
-        let mut file = File::create(filename).expect("Can't create file");
-        let mut icosahedron = Polyhedron::new_isocahedron(param.0, param.1);
-        icosahedron.compute_triangle_normals();
-        println!("triangles: {}", icosahedron.cells.len());
-        println!("vertices: {}", icosahedron.positions.len());
-        let icosahedron_json = serde_json::to_string(&icosahedron).expect("Problem serializing");
-        file.write_all(icosahedron_json.as_bytes())
-            .expect("Can't write to file");
-    }
-}
-
-fn generate_hexsphere_files(dir: &str, param_list: Vec<(f32, usize)>) {
-    for param in param_list {
-        println!(
-            "Generating hexsphere with radius {} and detail {}...",
-            param.0, param.1
-        );
-        let filename = Path::new(dir).join(format!("hexsphere_r{}_d{}.json", param.0, param.1));
-        let mut file = File::create(filename).expect("Can't create file");
-        let mut hexsphere = Polyhedron::new_truncated_isocahedron(param.0, param.1);
-        hexsphere.compute_triangle_normals();
-        // hexsphere.compute_face_normals();
-        println!("triangles: {}", hexsphere.cells.len());
-        println!("vertices: {}", hexsphere.positions.len());
-        let hexsphere_json = serde_json::to_string(&hexsphere).expect("Problem serializing");
-        file.write_all(hexsphere_json.as_bytes())
-            .expect("Can't write to file");
-    }
-}
-
-fn main() {
-    generate_hexsphere_files(
-        "output/",
-        vec![
-            (1.0, 0),
-            (1.0, 1),
-            (1.0, 2),
-            (1.0, 3),
-            (1.0, 4),
-            (1.0, 5),
-            (1.0, 6),
-            (1.0, 7),
-            // (1.0, 8),
-            // (1.0, 9),
-        ],
-    );
-    generate_icosahedron_files(
-        "output/",
-        vec![
-            (1.0, 0),
-            (1.0, 1),
-            (1.0, 2),
-            (1.0, 3),
-            (1.0, 4),
-            (1.0, 5),
-            (1.0, 6),
-            (1.0, 7),
-        ],
-    );
 }
