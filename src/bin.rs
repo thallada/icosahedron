@@ -3,51 +3,84 @@ extern crate clap;
 extern crate byteorder;
 extern crate icosahedron;
 
-use std::fs::{File, metadata};
+use std::fs::{metadata, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use byteorder::{WriteBytesExt, LittleEndian};
-use icosahedron::{Polyhedron};
+use byteorder::{LittleEndian, WriteBytesExt};
+use icosahedron::Polyhedron;
 
 fn write_to_binary_file(polyhedron: Polyhedron, path: &Path) {
     let bin_file = File::create(path).expect("Can't create file");
     let mut writer = BufWriter::new(bin_file);
     let write_error_message = "Error encountered while writing to binary file";
-    writer.write_u32::<LittleEndian>(polyhedron.positions.len() as u32)
+    writer
+        .write_u32::<LittleEndian>(polyhedron.positions.len() as u32)
         .expect(write_error_message);
-    writer.write_u32::<LittleEndian>(polyhedron.cells.len() as u32)
+    writer
+        .write_u32::<LittleEndian>(polyhedron.cells.len() as u32)
         .expect(write_error_message);
     for position in polyhedron.positions.iter() {
-        writer.write_f32::<LittleEndian>(position.0.x).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(position.0.y).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(position.0.z).expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(position.0.x)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(position.0.y)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(position.0.z)
+            .expect(write_error_message);
     }
     for normal in polyhedron.normals.iter() {
-        writer.write_f32::<LittleEndian>(normal.0.x).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(normal.0.y).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(normal.0.z).expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(normal.0.x)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(normal.0.y)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(normal.0.z)
+            .expect(write_error_message);
     }
     for color in polyhedron.colors.iter() {
-        writer.write_f32::<LittleEndian>(color.0.x).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(color.0.y).expect(write_error_message);
-        writer.write_f32::<LittleEndian>(color.0.z).expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(color.0.x)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(color.0.y)
+            .expect(write_error_message);
+        writer
+            .write_f32::<LittleEndian>(color.0.z)
+            .expect(write_error_message);
     }
     for cell in polyhedron.cells.iter() {
-        writer.write_u32::<LittleEndian>(cell.a as u32).expect(write_error_message);
-        writer.write_u32::<LittleEndian>(cell.b as u32).expect(write_error_message);
-        writer.write_u32::<LittleEndian>(cell.c as u32).expect(write_error_message);
+        writer
+            .write_u32::<LittleEndian>(cell.a as u32)
+            .expect(write_error_message);
+        writer
+            .write_u32::<LittleEndian>(cell.b as u32)
+            .expect(write_error_message);
+        writer
+            .write_u32::<LittleEndian>(cell.c as u32)
+            .expect(write_error_message);
     }
 }
 
 fn write_to_json_file(polyhedron: Polyhedron, path: &Path) {
     let mut json_file = File::create(path).expect("Can't create file");
     let json = serde_json::to_string(&polyhedron).expect("Problem serializing");
-    json_file.write_all(json.as_bytes()).expect("Can't write to file");
+    json_file
+        .write_all(json.as_bytes())
+        .expect("Can't write to file");
 }
 
-fn generate_files(dir: &str, format: Format, truncated: bool, colored: bool,
-                  param_list: Vec<(f32, u32)>) {
+fn generate_files(
+    dir: &str,
+    format: Format,
+    truncated: bool,
+    colored: bool,
+    param_list: Vec<(f32, u32)>,
+) {
     let mesh_type = if truncated {
         "hexsphere"
     } else {
@@ -59,7 +92,6 @@ fn generate_files(dir: &str, format: Format, truncated: bool, colored: bool,
             "Generating {} with radius {} and detail {}...",
             mesh_type, param.0, param.1
         );
-
 
         let polyhedron = if truncated {
             let mut hexsphere = Polyhedron::new_truncated_isocahedron(param.0, param.1);
@@ -83,9 +115,13 @@ fn generate_files(dir: &str, format: Format, truncated: bool, colored: bool,
         println!("triangles: {}", colored_polyhedron.cells.len());
         println!("vertices: {}", colored_polyhedron.positions.len());
 
-        let filename = Path::new(dir).join(
-            format!("{}_r{}_d{}.{}", mesh_type, param.0, param.1, format.extension())
-        );
+        let filename = Path::new(dir).join(format!(
+            "{}_r{}_d{}.{}",
+            mesh_type,
+            param.0,
+            param.1,
+            format.extension()
+        ));
         match format {
             Format::Bin => write_to_binary_file(colored_polyhedron, &filename),
             Format::Json => write_to_json_file(colored_polyhedron, &filename),
@@ -93,7 +129,7 @@ fn generate_files(dir: &str, format: Format, truncated: bool, colored: bool,
     }
 }
 
-arg_enum!{
+arg_enum! {
     #[derive(Debug)]
     enum Format {
         Json,
@@ -118,10 +154,16 @@ fn main() {
                 if metadata.is_dir() {
                     Ok(())
                 } else {
-                    Err(String::from(format!("Output '{}' is not a directory", &path_clone)))
+                    Err(String::from(format!(
+                        "Output '{}' is not a directory",
+                        &path_clone
+                    )))
                 }
             }
-            Err(_) => Err(String::from(format!("Directory '{}' doesn't exist", &path_clone)))
+            Err(_) => Err(String::from(format!(
+                "Directory '{}' doesn't exist",
+                &path_clone
+            ))),
         }
     };
 
@@ -142,7 +184,8 @@ fn main() {
             "Format to write the files in.")
         (@arg output: [OUTPUT] {dir_exists} default_value("output/")
             "Directory to write the output files to.")
-    ).get_matches();
+    )
+    .get_matches();
 
     let truncated = matches.is_present("truncated");
     let colored = matches.is_present("colored");
