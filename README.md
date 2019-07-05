@@ -27,7 +27,7 @@ To generate a detailed hexsphere, it starts with base icosahedron:
 
 ![icosahedron](img/icosahedron_colored_1.png)
 
-Subdivides it's sides into a more detailed icosahedron:
+Subdivides its sides into a more detailed icosahedron:
 
 ![subdivided icosahedron](img/icosahedron_colored_3.png)
 
