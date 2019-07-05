@@ -49,7 +49,7 @@ To install, either run `cargo install icosahedron` or checkout the repo and run
 Run it with the following options:
 
 ```
-icosahedron 1.0
+icosahedron 0.1.0
 Tyler Hallada <tyler@hallada.net>
 Generates 3D icosahedra meshes
 

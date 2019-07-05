@@ -168,7 +168,7 @@ fn main() {
     };
 
     let matches = clap_app!(icosahedron =>
-        (version: "1.0")
+        (version: "0.1.0")
         (author: "Tyler Hallada <tyler@hallada.net>")
         (about: "Generates 3D icosahedra meshes")
         (@arg truncated: -t --truncated "Generate truncated icosahedra (hexspheres).")

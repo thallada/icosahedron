@@ -3,6 +3,9 @@ name = "icosahedron"
 version = "0.1.0"
 authors = ["Tyler Hallada <tyler@hallada.net>"]
 edition = "2018"
+exclude = [
+    "output/*",
+]
 
 [lib]
 name = "icosahedron"
