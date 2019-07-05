@@ -41,7 +41,8 @@ Up to any detail level:
 
 ## Install
 
-To install, checkout the repo and then run `cargo install icosahedron`.
+To install, either run `cargo install icosahedron` or checkout the repo and run 
+`cargo build --release`.
 
 ## Usage
 
