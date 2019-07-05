@@ -6,6 +6,12 @@ edition = "2018"
 exclude = [
     "output/*",
 ]
+description = "Generates subdivided and truncated icosahedron spheres"
+repository = "https://github.com/thallada/icosahedron"
+readme = "README.md"
+keywords = ["meshes", "3d", "shapes", "icosahedron", "polyhedra"]
+categories = ["graphics"]
+license = "MIT"
 
 [lib]
 name = "icosahedron"
