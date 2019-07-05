@@ -8,18 +8,18 @@ Icosahedrons can be generated significantly faster than Three.js's version in
 JavaScript (which I pretty much copied into Rust).
 
 Trunacated icosahedrons (I call them hexspheres) are a bit slower to generate 
-since they are made by generating a icosahedron and then subdividing it into 
-hexagon and pentagon faces.
-
-When rendering hexspheres of detail level 5 and higher and icosahedrons of 
-detail level of 7 and higher in WebGL, make sure to enable the 
-[`OES_element_index_uint`](https://developer.mozilla.org/en-US/docs/Web/API/OES_element_index_uint) 
-extension since the number of vertices might overflow the normal int index.
+since they are made by generating a icosahedron and then truncating every point 
+into hexagon and pentagon faces.
 
 The program can also add color to each face by assigning each vertex a color, 
 but this comes at the cost of duplicating the shared vertices in the base model 
 so each face has a unique set of vertices, greatly increasing the size of the 
 mesh.
+
+When rendering hexspheres of detail level 5 and higher and icosahedrons of 
+detail level of 7 and higher in WebGL, make sure to enable the 
+[`OES_element_index_uint`](https://developer.mozilla.org/en-US/docs/Web/API/OES_element_index_uint) 
+extension since the number of vertices might overflow the normal int index.
 
 ## Screenshots
 
@@ -81,7 +81,7 @@ endian) is laid out as:
 2. 1 32 bit unsigned integer specifying the number of triangles (`T`)
 3. `V` * 3 number of 32 bit floats for every vertex's x, y, and z coordinate
 4. `V` * 3 number of 32 bit floats for the normals of every vertex
-5. `V` * 3 number of 32 bit floats for the color of every vertex component
+5. `V` * 3 number of 32 bit floats for the color of every vertex
 6. `T` * 3 number of 32 bit unsigned integers for the 3 indices into the vertex 
    array that make every triangle
 
