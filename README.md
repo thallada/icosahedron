@@ -21,6 +21,8 @@ detail level of 7 and higher in WebGL, make sure to enable the
 [`OES_element_index_uint`](https://developer.mozilla.org/en-US/docs/Web/API/OES_element_index_uint) 
 extension since the number of vertices might overflow the normal int index.
 
+View the shapes in 3D at: https://www.hallada.net/planet/
+
 ## Screenshots
 
 To generate a detailed hexsphere, it starts with base icosahedron:
